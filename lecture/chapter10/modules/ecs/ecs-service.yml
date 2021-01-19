@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Refactored Security Group - for AWS Training
+
+Parameters:
+  # タスク定義のARNをParametersで受け取る
+  ECSTaskDefARN:
+    Type: String
+    Description: ECS task definition ARN
+  # ALBで外部公開するコンテナ名(サンプルコードではapp-Aのnginx or app-Bのhttpd)
+  PublicContainerName:
+    Type: String
+
+  # CommaDelimitedListで配列のデータが受け取れる
+  # 複数のsubnet id, security group idが受け取れるようになっている
+  ECSSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`), for ECS"
+  ALBSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`) for ALB"
+  ECSSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`), for ECS"
+  ALBSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`) for ALB"
+
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  ServiceName:
+    Type: String
+    Description: ECS service name, ECS service name equals ECS task definition name in this case.
+    MaxLength: 28
+  ClusterName:
+    Type: String
+    Description: ECS cluster name
+  VPCId:
+    Type: String
+    Description: VPC ID that ECS and ALB belong
+
+Resources:
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ServiceName}-${ENV}"
+      Cluster: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}"
+      # タスク定義のARNをParametersから受け取る
+      TaskDefinition: !Ref ECSTaskDefARN
+      DesiredCount: 2
+      LaunchType: FARGATE
+      PlatformVersion: 1.4.0
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          # 配列で受け取ったParametersをそのまま渡している
+          SecurityGroups: !Ref ECSSecurityGroupIds
+          # 配列で受け取ったParametersをそのまま渡している
+          Subnets: !Ref ECSSubnetIds
+      LoadBalancers:
+        - ContainerName: !Ref PublicContainerName
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "for-${ServiceName}-${ENV}"
+      Scheme: internet-facing
+      # 配列で受け取ったParametersをそのまま渡している
+      SecurityGroups: !Ref ALBSecurityGroupIds
+      # 配列で受け取ったParametersをそのまま渡している
+      Subnets: !Ref ALBSubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub "for-${ServiceName}-${ENV}"
+      Type: application
+
+  ALBListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Name: !Sub "for-${ServiceName}-${ENV}"
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: !Sub "for-${ServiceName}-${ENV}"
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VPCId
+    DependsOn: ALB

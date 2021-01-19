@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: RDS - for aws training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod stg dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  DBInstanceName:
+    Type: String
+    MaxLength: 50
+    Description: db instance name
+  RdsSubnetGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet group ids (ex. `sg-xxxxxxxx sg-yyyyyyyy`) for RDS"
+  RdsSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx sg-yyyyyyyy`) for RDS"
+  DBInstanceClass:
+    Type: String
+    Description: "db.t3.xxxxx choose one of these (micro small medium large) for RDS"
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t3.large
+
+Resources:
+  RdsParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub "${DBInstanceName}'s parameter group"
+      Family: mysql5.7
+      Parameters:
+        character_set_database: utf8mb4
+        character_set_server: utf8mb4
+      Tags:
+        - Key: Name
+          Value: !Sub "${DBInstanceName}-${ENV}"
+
+  RdsOptionGroup:
+    Type: AWS::RDS::OptionGroup
+    Properties:
+      EngineName: mysql
+      MajorEngineVersion: 5.7
+      OptionConfigurations:
+        - OptionName: MARIADB_AUDIT_PLUGIN
+      OptionGroupDescription: !Sub "${DBInstanceName}'s option group"
+      Tags:
+        - Key: Name
+          Value: !Sub "${DBInstanceName}-${ENV}"
+
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "${DBInstanceName}'s subnet group"
+      DBSubnetGroupName: !Sub "${DBInstanceName}-${ENV}"
+      SubnetIds: !Ref RdsSubnetGroupIds
+      Tags:
+        - Key: Name
+          Value: !Sub "${DBInstanceName}-${ENV}"
+
+  MasterDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AutoMinorVersionUpgrade: false
+      BackupRetentionPeriod: 30
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Sub "${DBInstanceName}-${ENV}"
+      DBParameterGroupName: !Ref RdsParameterGroup
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      DeletionProtection: true
+      Engine: mysql
+      EngineVersion: 5.7.25
+      KmsKeyId: !Ref RdsKmsKey
+      MasterUsername: admin
+      MasterUserPassword: VeryStrongPassword!
+      MultiAZ: true
+      OptionGroupName: !Ref RdsOptionGroup
+      Port: 3306
+      PreferredBackupWindow: 09:10-09:40
+      PreferredMaintenanceWindow: mon:10:10-mon:10:40
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${DBInstanceName}-${ENV}"
+      VPCSecurityGroups: !Ref RdsSecurityGroupIds
+    DeletionPolicy: Delete
+
+  RdsKmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "${DBInstanceName}-${ENV}'s key"
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: !Sub "${DBInstanceName}-${ENV}'s key"
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - kms:*
+            Resource: "*"
+      PendingWindowInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub "${DBInstanceName}-${ENV}-key"
+
+  KmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/rds/${DBInstanceName}-${ENV}"
+      TargetKeyId: !Ref RdsKmsKey

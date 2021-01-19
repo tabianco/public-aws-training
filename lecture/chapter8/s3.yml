@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: S3 - for AWS Training
+
+Resources:
+  # S3 Private
+  S3PrivateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      BucketName: s3-private-bucket-of-aws-training
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3 Public
+  S3PublicBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      BucketName: s3-public-bucket-of-aws-training
+
+  # S3 Log
+  S3AlbLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: s3-alb-log-bucket-of-aws-training
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 180
+
+  # S3 Log Bucket Policy
+  AlbLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3AlbLogBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:PutObject"
+            Effect: Allow
+            Resource:
+              !Join
+                - ""
+                - - "arn:aws:s3:::"
+                  - !Ref S3AlbLogBucket
+                  - "/*"
+            Principal:
+              AWS:
+                - "127311923021"
+
+Outputs:
+  S3AlbLogBucket:
+    Value: !Ref S3AlbLogBucket
+    Export:
+      Name: S3AlbLogBucket

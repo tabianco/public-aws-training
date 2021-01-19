@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS task - service A - for AWS Training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  ClusterName:
+    Type: String
+    Description: ECS cluster name
+  VPCId:
+    Type: String
+    Description: VPC ID that ECS and ALB belong
+  ECSSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`), for ECS"
+  ALBSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`) for ALB"
+  ECSSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`), for ECS"
+  ALBSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`) for ALB"
+  ALBLogBucketName:
+    Type: String
+    Description: ALB log bucket name  
+  BucketName:
+    Type: String
+  DBHost:
+    Type: String
+  RedisHost:
+    Type: String
+
+Resources:
+  ECSTask:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./ecs-task.yml
+      Parameters:
+        ENV: !Ref ENV
+        TaskDefName: "practical-problem-app"
+        BucketName: !Ref BucketName
+        DBHost: !Ref DBHost
+        RedisHost: !Ref RedisHost
+
+  ECSService:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ../../ecs-service.yml
+      Parameters:
+        # GetAtt関数で子テンプレートがOutputsした値を取得することができる
+        ECSTaskDefARN: !GetAtt ECSTask.Outputs.ECSTaskDefARN
+        ENV: !Ref ENV
+        ServiceName: "practical-problem-app"
+        PublicContainerName: "practical-problem-app"
+        ClusterName: !Ref ClusterName
+        VPCId: !Ref VPCId
+        ECSSecurityGroupIds: !Join 
+          - ','
+          - !Ref ECSSecurityGroupIds
+        ALBSecurityGroupIds: !Join
+          - ','
+          - !Ref ALBSecurityGroupIds
+        ECSSubnetIds: !Join
+          - ','
+          - !Ref ECSSubnetIds
+        ALBSubnetIds: !Join
+          - ','
+          - !Ref ALBSubnetIds
+        ALBLogBucketName: !Ref ALBLogBucketName

@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: IAM - Role, Policy for AWS Training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  # IAM(Role) Resource
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${prefix}Role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+
+  # IAM(Policy) Resource
+  Policy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub ${prefix}Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeRegions
+            Resource: "*"
+      Roles:
+        - !Ref Role
+
+  # Instance Profile
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${prefix}InstanceProfile
+      Roles:
+        - !Ref Role

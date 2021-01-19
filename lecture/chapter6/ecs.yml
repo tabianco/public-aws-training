@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS - for AWS Training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref prefix
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref prefix
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: !Ref prefix
+          Image: nginx:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: nginx
+              awslogs-group: !Sub /ecs/${prefix}
+          PortMappings:
+            - Protocol: tcp
+              ContainerPort: 80
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref prefix
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      PlatformVersion: 1.4.0
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+            AssignPublicIp: DISABLED
+            SecurityGroups:
+              - !Ref NginxSG
+            Subnets:
+              - !ImportValue PrivateSubnet1a
+              - !ImportValue PrivateSubnet1c
+      LoadBalancers:
+        - ContainerName: !Ref prefix
+          ContainerPort: 80
+          TargetGroupArn:
+            !ImportValue AlbTargetGroup
+
+  NginxSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: for AWS Training
+      GroupName: !Sub ${prefix}NginxSG
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp:
+            !ImportValue VPCIp
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      VpcId:
+        !ImportValue VPC
+
+  CWL:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${prefix}
+      RetentionInDays: 180
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${prefix}-ECSTaskExecutionRolePolicy"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  EcsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${prefix}ECSPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameters
+              - kms:Decrypt
+            Resource: "*"
+      Roles:
+        - !Ref ECSTaskExecutionRole
+
+  CWLBatch:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs-scheduled-tasks/${prefix}
+      RetentionInDays: 180
+
+  TaskDefinitionBatch:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${prefix}Batch
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: alpine
+          Image: alpine:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: batch
+              awslogs-group: !Sub /ecs-scheduled-tasks/${prefix}
+          Command:
+            - /bin/date
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+
+  EcsEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: バッチテスト
+      Name: !Sub ${prefix}Batch
+      ScheduleExpression: "cron(*/2 * * * ? *)"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt
+            - Cluster
+            - Arn
+          EcsParameters:
+            LaunchType: FARGATE
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: DISABLED
+                Subnets:
+                  - !ImportValue PrivateSubnet1a
+            PlatformVersion: 1.4.0
+            TaskCount: 1
+            TaskDefinitionArn: !Ref TaskDefinitionBatch
+          Id: !Sub ${prefix}Batch
+          RoleArn: !GetAtt
+            - EcsEventRole
+            - Arn
+
+  EcsEventRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${prefix}-EcsEventRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceEventsRole
+
+Outputs:
+  Cluster:
+    Value: !Ref Cluster
+    Export:
+      Name: Cluster
+  Service:
+    Value: !GetAtt Service.Name
+    Export:
+      Name: Service

@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: SSM for AWS Training
+
+Resources:
+  SsmDbUsername:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: データベースのユーザー名
+      Name: /db/username
+      Type: String
+      Value: root
+
+  SsmDbPassword:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: データベースのパスワード
+      Name: /db/password
+      Type: String
+      Value: uninitialized

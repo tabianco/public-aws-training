@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Code Pipeline - for AWS Training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Ref prefix
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              Configuration:
+                Owner: tabianco
+                Repo: sample-docker-for-aws-training
+                Branch: master
+                PollForSourceChanges: false
+                OAuthToken: "{{resolve:secretsmanager:github-token:SecretString:github-token}}"
+              Name: Source
+              OutputArtifacts:
+                - Name: Source
+        - Name: Build
+          Actions:
+            - ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              Configuration:
+                ProjectName: !ImportValue CodeBuild
+              Name: Build
+              InputArtifacts:
+                - Name: Source
+              OutputArtifacts:
+                - Name: Build
+        - Name: Deploy
+          Actions:
+            - ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: 1
+              Configuration:
+                ClusterName: !ImportValue Cluster
+                ServiceName: !ImportValue Service
+                FileName: "imagedefinitions.json"
+              Name: Deploy
+              InputArtifacts:
+                - Name: Build
+      ArtifactStore:
+        Location: !Ref ArtifactBucket
+        Type: S3
+
+  PipelineWebHook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      RegisterWithThirdParty: true
+      Name: !Ref prefix
+      TargetAction: Source
+      TargetPipeline: !Ref Pipeline
+      TargetPipelineVersion: 1
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: "{{resolve:secretsmanager:github-token:SecretString:github-token}}"
+      Filters:
+        - JsonPath: "$.ref"
+          MatchEquals: "refs/heads/{Branch}"
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${prefix}CodePipelineRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service:
+              - "codepipeline.amazonaws.com"
+
+  CodePipelinePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub ${prefix}CodePipelinePolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:GetObjectVersion
+            - s3:GetBucketVersioning
+            - codebuild:BatchGetBuilds
+            - codebuild:StartBuild
+            - ecs:DescribeServices
+            - ecs:DescribeTaskDefinition
+            - ecs:DescribeTasks
+            - ecs:ListTasks
+            - ecs:RegisterTaskDefinition
+            - ecs:UpdateService
+            - iam:PassRole
+          Resource: "*"
+      Roles:
+        - !Ref CodePipelineRole
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: artifact-bucket-of-aws-training
+      LifecycleConfiguration:
+        Rules:
+          - ExpirationInDays: 180
+            Status: Enabled

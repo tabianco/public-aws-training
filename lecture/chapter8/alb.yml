@@ -1,0 +1,200 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ALB - for aws training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  HttpSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${prefix}
+      GroupName: http-sg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      VpcId: !ImportValue VPC
+
+  HttpsSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${prefix}
+      GroupName: https-sg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+      VpcId: !ImportValue VPC
+
+  HttpRedirectSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${prefix}
+      GroupName: http-redirect-sg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080
+      VpcId: !ImportValue VPC
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: True
+        - Key: access_logs.s3.bucket
+          Value: !ImportValue S3AlbLogBucket
+        - Key: idle_timeout.timeout_seconds
+          Value: 60
+        - Key: deletion_protection.enabled
+          Value: false
+      Name: !Sub ${prefix}
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref HttpSg
+        - !Ref HttpsSg
+        - !Ref HttpRedirectSg
+      Subnets:
+        - !ImportValue PublicSubnet1a
+        - !ImportValue PublicSubnet1c
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+      Type: application
+
+  AlbListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: これは[HTTP]です。
+            StatusCode: 200
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+
+  Route53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt Alb.DNSName
+        EvaluateTargetHealth: true
+        HostedZoneId: !GetAtt Alb.CanonicalHostedZoneID
+      HostedZoneId: Z04435413MURG69WWTLEL
+      Name: awstrainingservice.com
+      Type: A
+
+  Resources:
+    Acm:
+      Type: AWS::CertificateManager::Certificate
+      Properties:
+        DomainName: awstrainingservice.com
+        DomainValidationOptions:
+          - DomainName: awstrainingservice.com
+            HostedZoneId: Z04435413MURG69WWTLEL
+        Tags:
+          - Key: Name
+            Value: !Sub ${prefix}
+        ValidationMethod: DNS
+
+  AlbListenerHttps:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Certificates:
+        - CertificateArn: !Ref Acm
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/plain
+            MessageBody: これは[HTTPS]です。
+            StatusCode: 200
+      LoadBalancerArn: !Ref Alb
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-2016-08
+
+  AlbListenerRedirect:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Port: 443
+            Protocol: HTTPS
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref Alb
+      Port: 8080
+      Protocol: HTTP
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Name: !Sub ${prefix}TargetGroup
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !ImportValue VPC
+    DependsOn: Alb
+
+  AlbListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref AlbTargetGroup
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /*
+      ListenerArn: !Ref AlbListenerHttps
+      Priority: 100
+
+Outputs:
+  AlbDNSName:
+    Value: !GetAtt Alb.DNSName
+    Export:
+      Name: AlbDNSName
+  AlbDNSHostedZoneID:
+    Value: !GetAtt Alb.CanonicalHostedZoneID
+    Export:
+      Name: AlbDNSHostedZoneID
+  AlbTargetGroup:
+    Value: !Ref AlbTargetGroup
+    Export:
+      Name: AlbTargetGroup

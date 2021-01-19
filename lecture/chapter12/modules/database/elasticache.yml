@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Elasticache - for aws training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod stg dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  Name:
+    Type: String
+    MaxLength: 50
+    Description: elasticache instance name
+  RedisSubnetGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet group ids (ex. `sg-xxxxxxxx sg-yyyyyyyy`) for Elasticache"
+  RedisSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx sg-yyyyyyyy`) for Elasticache"
+  RedisInstanceClass:
+    Type: String
+    Description: "cache.t3.xxxxx choose one of these (micro small medium) for Elasticache"
+    AllowedValues:
+      - cache.t3.micro
+      - cache.t3.small
+      - cache.t3.medium
+
+
+Resources:
+  RedisParameterGroup:
+    Type: AWS::ElastiCache::ParameterGroup
+    Properties:
+      CacheParameterGroupFamily: redis5.0
+      Description: !Sub "${Name}'s cache parameter group"
+      Properties:
+        cluster-enabled: "no"
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: !Sub "${Name}-${ENV}"
+      Description: !Sub "${Name}'s redis subnet group"
+      SubnetIds: !Ref RedisSubnetGroupIds
+
+  RedisReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      AutomaticFailoverEnabled: true
+      CacheNodeType: !Ref RedisInstanceClass
+      CacheParameterGroupName: !Ref RedisParameterGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      Engine: redis
+      EngineVersion: 5.0.4
+      NumCacheClusters: 2
+      Port: 6379
+      PreferredMaintenanceWindow: mon:10:40-mon:11:40
+      ReplicationGroupDescription: !Sub "${Name}'s replication group"
+      ReplicationGroupId: !Sub "${Name}-${ENV}"
+      SecurityGroupIds: !Ref RedisSecurityGroupIds
+      SnapshotRetentionLimit: 7
+      SnapshotWindow: 9:10-10:10
+      Tags:
+        - Key: Name
+          Value: !Sub "${Name}-${ENV}"

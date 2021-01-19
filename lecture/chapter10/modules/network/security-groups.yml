@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Refactored Security Group - for AWS Training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  # VPCのIDを外部から受け取る
+  VPCId:
+    Type: String
+    Description: VCPId
+
+Resources:
+  # インターネットからのHTTP, HTTPSの通信をすべて許可する、ALBにアタッチする
+  WebSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow public HTTP, HTTPS traffic
+      GroupName: !Sub "allow-web-sg-${ENV}"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: !Sub "allow-web-sg-${ENV}"
+
+
+  # インターナル(VPC内)の通信をすべて許可する、ALBとECSのコンテナの通信を許可する
+  InternalSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow all internal traffic
+      GroupName: !Sub "allow-internal-sg-${ENV}"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: !Sub "allow-internal-sg-${ENV}"
+
+
+  InternalSGIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      FromPort: -1
+      ToPort: -1
+      GroupId: !Ref InternalSG
+      SourceSecurityGroupId: !Ref InternalSG

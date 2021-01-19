@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: KMS for AWS Training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  KmsKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub ${prefix} master key
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: !Sub ${prefix}default
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::248776079707:role/AdminControl-AdminSwitchRole
+            Action:
+              - kms:*
+            Resource: "*"
+      PendingWindowInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+
+  KmsAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${prefix}
+      TargetKeyId: !Ref KmsKey
+
+Outputs:
+  KmsKey:
+    Value: !GetAtt KmsKey.Arn
+    Export:
+      Name: KmsKey

@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: DB - for aws training
+
+Parameters:
+  prefix:
+    Type: String
+    Default: awsTraining
+    Description: name prefix
+
+Resources:
+  RdsParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: !Sub ${prefix}DbParameterGroup
+      Family: mysql5.7
+      Parameters:
+        character_set_database: utf8mb4
+        character_set_server: utf8mb4
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+
+  RdsOptionGroup:
+    Type: AWS::RDS::OptionGroup
+    Properties:
+      EngineName: mysql
+      MajorEngineVersion: 5.7
+      OptionConfigurations:
+        - OptionName: MARIADB_AUDIT_PLUGIN
+      OptionGroupDescription: !Sub ${prefix}DbOptionGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub ${prefix}DbSubnetGroup
+      DBSubnetGroupName: !Sub ${prefix}Rds
+      SubnetIds:
+        - !ImportValue PrivateSubnet1a
+        - !ImportValue PrivateSubnet1c
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+
+  RdsInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      AutoMinorVersionUpgrade: false
+      BackupRetentionPeriod: 30
+      DBInstanceClass: db.t3.small
+      DBInstanceIdentifier: !Sub ${prefix}Rds
+      DBName: !Sub ${prefix}Rds
+      DBParameterGroupName: !Ref RdsParameterGroup
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      DeletionProtection: true
+      Engine: mysql
+      EngineVersion: 5.7.25
+      KmsKeyId: !ImportValue KmsKey
+      MasterUsername: admin
+      MasterUserPassword: VeryStrongPassword!
+      MultiAZ: true
+      OptionGroupName: !Ref RdsOptionGroup
+      Port: 3306
+      PreferredBackupWindow: 09:10-09:40
+      PreferredMaintenanceWindow: mon:10:10-mon:10:40
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+      VPCSecurityGroups:
+        - !Ref RdsSg
+    DeletionPolicy: Delete
+
+  RdsSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${prefix}
+      GroupName: mysql-sg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 3306
+          IpProtocol: tcp
+          ToPort: 3306
+      VpcId: !ImportValue VPC
+
+  RedisParameterGroup:
+    Type: AWS::ElastiCache::ParameterGroup
+    Properties:
+      CacheParameterGroupFamily: redis5.0
+      Description: !Sub ${prefix}CacheParameterGroup
+      Properties:
+        cluster-enabled: "no"
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      CacheSubnetGroupName: !Sub ${prefix}Redis
+      Description: !Sub ${prefix}RedisSubnetGroup
+      SubnetIds:
+        - !ImportValue PrivateSubnet1a
+        - !ImportValue PrivateSubnet1c
+
+  RedisReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      AutomaticFailoverEnabled: true
+      CacheNodeType: cache.t3.micro
+      CacheParameterGroupName: !Ref RedisParameterGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      Engine: redis
+      EngineVersion: 5.0.4
+      NumCacheClusters: 3
+      Port: 6379
+      PreferredMaintenanceWindow: mon:10:40-mon:11:40
+      ReplicationGroupDescription: !Sub ${prefix}ReplicationGroup
+      ReplicationGroupId: !Sub ${prefix}
+      SecurityGroupIds:
+        - !Ref RedisSg
+      SnapshotRetentionLimit: 7
+      SnapshotWindow: 9:10-10:10
+      Tags:
+        - Key: Name
+          Value: !Sub ${prefix}
+
+  RedisSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub ${prefix}
+      GroupName: redis-sg
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 6379
+          IpProtocol: tcp
+          ToPort: 6379
+      VpcId: !ImportValue VPC

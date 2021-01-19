@@ -1,0 +1,83 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: S3 - for AWS Training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod stg dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  Name:
+    Type: String
+    MaxLength: 50
+    Description: bucket name
+
+Resources:
+  # 接続テスト用のバケット
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      BucketName: !Sub "connection-test-${Name}-${ENV}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 180
+            
+  # ALB Log
+  ALBLogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      BucketName: !Sub "alb-log-${Name}-${ENV}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # 6ヶ月が経過したらコストの安いCLACIERに移行
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            Transitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 180
+
+  # S3 Log Bucket Policy
+  AlbLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ALBLogBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - "s3:PutObject"
+            Effect: Allow
+            Resource:
+              !Join
+                - ""
+                - - "arn:aws:s3:::"
+                  - !Ref ALBLogBucket
+                  - "/*"
+            Principal:
+              AWS:
+                - "127311923021"

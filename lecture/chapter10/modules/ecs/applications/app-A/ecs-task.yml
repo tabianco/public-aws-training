@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: refactored ECS task - service A - for AWS Training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  TaskDefName:
+    Type: String
+    MaxLength: 28
+    Description: ECS task definition name
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${TaskDefName}-${ENV}"
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: nginx
+          # app-A, app-Bで違うDockerイメージを採用
+          Image: nginx:latest
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: us-east-1
+              awslogs-stream-prefix: nginx
+              awslogs-group: !Sub "/ecs/${TaskDefName}-${ENV}/nginx"
+          PortMappings:
+            - Protocol: tcp
+              ContainerPort: 80
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${TaskDefName}-${ENV}-ECSTaskExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  EcsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "${TaskDefName}-${ENV}-ECSTaskExecutionPolicy"
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:Get*"
+              - "s3:List*"
+              - "s3:Put*"
+            # アプリケーションAで使用するバケットにアクセスする許可をサンプルとして記述
+            # サービスごとにテンプレートを分けているため、全然違うポリシーを実装ても問題ない
+            Resource: !Sub "arn:aws:s3:::bucket_name/${TaskDefName}-${ENV}-bucket"
+      Roles:
+        - !Ref ECSTaskExecutionRole
+
+  CloudWatchLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${TaskDefName}-${ENV}/nginx"
+      RetentionInDays: 180
+
+
+# 指定したKey, Valueで外部から参照できるようにOutputsセクションに記述
+Outputs:
+  ECSTaskDefARN:
+    # タスク定義のARNをRef関数で取得できる
+    # 親テンプレートでOutputsした値を取得することができる
+    Value: !Ref TaskDefinition

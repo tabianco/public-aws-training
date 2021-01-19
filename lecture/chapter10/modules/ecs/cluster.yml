@@ -1,0 +1,20 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: refactored ECS Cluster - for AWS Training
+
+Parameters:
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  ClusterName:
+    Type: String
+    Description: Cluster name
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ClusterName}-${ENV}"

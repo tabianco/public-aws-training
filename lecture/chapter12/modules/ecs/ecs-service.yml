@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ECS Service - for AWS Training
+
+Parameters:
+  ECSTaskDefARN:
+    Type: String
+    Description: ECS task definition ARN
+  PublicContainerName:
+    Type: String
+  ECSSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`), for ECS"
+  ALBSecurityGroupIds:
+    Type: CommaDelimitedList
+    Description: "list of security group ids (ex. `sg-xxxxxxxx, sg-yyyyyyyy`) for ALB"
+  ECSSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`), for ECS"
+  ALBSubnetIds:
+    Type: CommaDelimitedList
+    Description: "list of subnet ids (ex. `subnet-xxxxxxxx, subnet-yyyyyyyy`) for ALB"
+
+  ENV:
+    Type: String
+    Description: ENV name(prod, stg, dev)
+    AllowedValues:
+      - prod
+      - stg
+      - dev
+  ServiceName:
+    Type: String
+    Description: ECS service name, ECS service name equals ECS task definition name in this case.
+    MaxLength: 28
+  ClusterName:
+    Type: String
+    Description: ECS cluster name
+  VPCId:
+    Type: String
+    Description: VPC ID that ECS and ALB belong
+  ALBLogBucketName:
+    Type: String
+    Description: ALB log bucket name
+
+Resources:
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ServiceName}-${ENV}"
+      Cluster: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}"
+      TaskDefinition: !Ref ECSTaskDefARN
+      DesiredCount: 0
+      # ECRにDockerイメージがpush、パラメータストアにDBの接続情報を入力したらカウント数を増やす
+      # DesiredCount: 2
+      LaunchType: FARGATE
+      PlatformVersion: 1.4.0
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: !Ref ECSSecurityGroupIds
+          Subnets: !Ref ECSSubnetIds
+      LoadBalancers:
+        - ContainerName: !Ref PublicContainerName
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroup
+    DependsOn: 
+      - ALB
+      - ALBListenerHttp
+      - ALBTargetGroup
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "for-${ServiceName}-${ENV}"
+      Scheme: internet-facing
+      SecurityGroups: !Ref ALBSecurityGroupIds
+      Subnets: !Ref ALBSubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub "for-${ServiceName}-${ENV}"
+      Type: application
+      LoadBalancerAttributes:
+        - Key: access_logs.s3.enabled
+          Value: True
+        - Key: access_logs.s3.bucket
+          Value: !Ref ALBLogBucketName
+        - Key: access_logs.s3.prefix
+          Value: !Sub "for-${ServiceName}-${ENV}"
+
+  ALBListenerHttp:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref ALBTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Name: !Sub "for-${ServiceName}-${ENV}"
+      Port: 80
+      Protocol: HTTP
+      Tags:
+        - Key: Name
+          Value: !Sub "for-${ServiceName}-${ENV}"
+      TargetType: ip
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VPCId
+    DependsOn: ALB
